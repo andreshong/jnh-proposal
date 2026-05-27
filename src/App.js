@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 
 // ═══ Google Apps Script URL ═══
 // 아래 URL을 본인의 Apps Script 배포 URL로 교체하세요
-const SCRIPT_URL = "https://script.google.com/macros/s/AKfycby4E5JrF0dCoKbtcb4fU9REbbODq_5pODemCkjQKL7In-Q6sJ2q68acuEpjN2JdrHYgXg/exec";
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzKfxF8o7oeeqXTnpaJfgpqBJZKp5QLv01MdeFws9WByuOgvcCSHF5r8jHtcoWo6JBNeA/exec";
 
 const DEPARTMENTS = [
   "영업팀", "구매팀", "생산관리팀", "가공팀", "제관팀",
