@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 
 // ═══ Google Apps Script URL ═══
 // 아래 URL을 본인의 Apps Script 배포 URL로 교체하세요
-const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzKfxF8o7oeeqXTnpaJfgpqBJZKp5QLv01MdeFws9WByuOgvcCSHF5r8jHtcoWo6JBNeA/exec";
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyXDVXvYow3_eYAkuWZ6hla3o13YZJ8_aFrcDo-cLkl6OHl4wW77Sy3qNGsNuQb--2x/exec";
 
 const DEPARTMENTS = [
   "영업팀", "구매팀", "생산관리팀", "가공팀", "제관팀",
@@ -104,7 +104,7 @@ async function compressImages(images) {
   return Promise.all(images.map((img) => compressImage(img)));
 }
 
-// ── Apps Script 전송 ──
+// ── Apps Script 전송 (hidden iframe + form 방식으로 CORS 완전 우회) ──
 async function submitToSheets(scriptUrl, formData) {
   const compressed = {
     ...formData,
@@ -112,19 +112,35 @@ async function submitToSheets(scriptUrl, formData) {
     tobeImages: await compressImages(formData.tobeImages || []),
   };
 
-  // POST는 Content-Type: text/plain으로 전송 (simple request = preflight 없음)
-  // CORS 에러가 발생하지만, 서버는 이미 데이터를 처리 완료함
-  try {
-    await fetch(scriptUrl, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify(compressed),
-    });
-  } catch (e) {
-    // CORS 에러는 예상된 동작 - 데이터는 이미 서버에 저장됨
-    console.log("CORS error expected, data should be saved:", e.message);
-  }
-  return { result: "success" };
+  return new Promise((resolve) => {
+    // hidden iframe 생성
+    const iframe = document.createElement("iframe");
+    iframe.name = "jnh-submit-frame";
+    iframe.style.display = "none";
+    document.body.appendChild(iframe);
+
+    // form 생성 → iframe으로 제출 (CORS 제한 없음)
+    const form = document.createElement("form");
+    form.method = "POST";
+    form.action = scriptUrl;
+    form.target = "jnh-submit-frame";
+
+    const input = document.createElement("input");
+    input.type = "hidden";
+    input.name = "payload";
+    input.value = JSON.stringify(compressed);
+    form.appendChild(input);
+
+    document.body.appendChild(form);
+    form.submit();
+
+    // 정리 (5초 후)
+    setTimeout(() => {
+      try { document.body.removeChild(form); } catch(e) {}
+      try { document.body.removeChild(iframe); } catch(e) {}
+      resolve({ result: "success" });
+    }, 5000);
+  });
 }
 
 // ─── Styles ───
