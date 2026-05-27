@@ -1184,27 +1184,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Settings */}
-            <div className="settings-card animate-in">
-              <div className="settings-title">⚙️ Google Sheets 연동</div>
-              <div className="settings-desc">
-                Apps Script 배포 URL을 입력하면 제안 데이터가 Google Sheets에 자동 저장되고,
-                첨부 이미지는 Google Drive에 업로드됩니다.
-              </div>
-              <div className="settings-row">
-                <input className="text-input" placeholder="https://script.google.com/macros/s/..." 
-                  value={urlInput} onChange={e => setUrlInput(e.target.value)} />
-                <button className="settings-btn btn-primary"
-                  onClick={() => urlInput.trim() && testConnection(urlInput.trim())}>
-                  연결 테스트
-                </button>
-              </div>
-              <div className={`conn-status ${connStatus === "ok" ? "conn-ok" : connStatus === "fail" ? "conn-fail" : "conn-none"}`}>
-                {connStatus === "ok" && "✓ Google Sheets 연결됨"}
-                {connStatus === "fail" && "✕ 연결 실패 - URL을 확인해주세요"}
-                {connStatus === "none" && "○ 미연결 (로컬 저장만 사용)"}
-              </div>
-            </div>
 
             {proposals.length > 0 && (
               <div className="dashboard-stats animate-in">
