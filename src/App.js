@@ -83,6 +83,12 @@ function getQuarterTag() {
   return `${now.getFullYear()}-Q${q}`;
 }
 
+// Storage 객체 키에는 ASCII 안전 문자만 허용됨 (한글·공백 등은 "Invalid key"로 업로드 실패)
+// 부서명/이름 등 키에 들어가는 값은 안전 문자만 남긴다.
+function safeKey(str) {
+  return (str || "").replace(/[^a-zA-Z0-9._-]/g, "").slice(0, 40);
+}
+
 // dataURL(base64) → Blob 변환 (Storage 업로드용)
 function dataURLtoBlob(dataURL) {
   const parts = dataURL.split(",");
@@ -95,24 +101,28 @@ function dataURLtoBlob(dataURL) {
   return new Blob([u8], { type: mime });
 }
 
-// ── 이미지 압축 ──
-function compressImage(base64, maxDim = 1024, quality = 0.6) {
+// ── 이미지 최적화 (절충안) ──
+// 긴 변 2048px 이내로만 축소 + 화질 85%.
+// 사진(JPEG)은 JPEG로, 그림·도표(PNG)는 손실 없이 PNG로 유지. 이미 작으면 원본 그대로.
+function compressImage(base64, maxDim = 2048, quality = 0.85) {
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
       try {
-        const canvas = document.createElement("canvas");
+        const srcMime = (base64.match(/data:(.*?);/) || [])[1] || "image/jpeg";
         let w = img.width, h = img.height;
-        if (w > maxDim || h > maxDim) {
-          const ratio = Math.min(maxDim / w, maxDim / h);
-          w = Math.round(w * ratio);
-          h = Math.round(h * ratio);
-        }
+        // 이미 충분히 작으면 원본 그대로 (재인코딩 안 함)
+        if (w <= maxDim && h <= maxDim) { resolve(base64); return; }
+        const ratio = Math.min(maxDim / w, maxDim / h);
+        w = Math.round(w * ratio);
+        h = Math.round(h * ratio);
+        const canvas = document.createElement("canvas");
         canvas.width = w;
         canvas.height = h;
         const ctx = canvas.getContext("2d");
         ctx.drawImage(img, 0, 0, w, h);
-        resolve(canvas.toDataURL("image/jpeg", quality));
+        const outMime = srcMime === "image/png" ? "image/png" : "image/jpeg";
+        resolve(canvas.toDataURL(outMime, quality)); // PNG는 quality 무시(무손실)
       } catch {
         resolve(base64);
       }
@@ -122,16 +132,17 @@ function compressImage(base64, maxDim = 1024, quality = 0.6) {
   });
 }
 
-// 이미지 배열을 Storage에 업로드하고 public URL 배열 반환
+// 이미지 배열을 최적화하여 Storage에 업로드하고 public URL 배열 반환
 async function uploadImages(images, prefix) {
   const urls = [];
   for (let i = 0; i < images.length; i++) {
     try {
-      const compressed = await compressImage(images[i]);
-      const blob = dataURLtoBlob(compressed);
-      const path = `${prefix}/${Date.now()}_${i}.jpg`;
+      const processed = await compressImage(images[i]); // 절충 최적화 적용
+      const blob = dataURLtoBlob(processed);
+      const ext = (blob.type.split("/")[1] || "jpg").replace("jpeg", "jpg");
+      const path = `${prefix}/${Date.now()}_${i}.${ext}`; // 형식별 확장자 유지
       const { error } = await supabase.storage.from(STORAGE_BUCKET).upload(path, blob, {
-        contentType: "image/jpeg",
+        contentType: blob.type || "image/jpeg",
         upsert: false,
       });
       if (error) { console.error("upload error", error); continue; }
@@ -369,8 +380,8 @@ textarea.text-input { min-height: 140px; resize: vertical; line-height: 1.7; }
 .review-label { width: 100px; flex-shrink: 0; font-size: 13px; font-weight: 500; color: var(--text-sub); padding-top: 2px; }
 .review-value { flex: 1; font-size: 14px; color: var(--text); line-height: 1.7; white-space: pre-wrap; word-break: break-word; }
 
-.review-images { display: flex; gap: 8px; flex-wrap: wrap; }
-.review-images img { width: 80px; height: 80px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border); }
+.review-images { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.review-images img { width: 100%; max-width: 460px; height: auto; object-fit: contain; border-radius: 8px; border: 1px solid var(--border); display: block; }
 
 .dashboard-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
 .dashboard-title { font-size: 22px; font-weight: 700; }
@@ -573,7 +584,7 @@ textarea.text-input { min-height: 140px; resize: vertical; line-height: 1.7; }
   .review-label { width: auto; font-size: 12px; }
   .review-value { font-size: 13px; }
   .review-section-header { padding: 12px 16px; font-size: 12px; }
-  .review-images img { width: 64px; height: 64px; }
+  .review-images img { max-width: 100%; }
 
   .info-banner { padding: 18px 16px; margin-bottom: 16px; }
   .info-banner h3 { font-size: 14px; }
@@ -941,7 +952,8 @@ export default function App() {
       const hasImages = form.asisImages.length > 0 || form.tobeImages.length > 0;
       if (hasImages) {
         setLoadingMsg("이미지를 업로드하는 중...");
-        const folder = `${getQuarterTag()}/${form.department}_${form.name}_${Date.now()}`;
+        // Storage 키에는 ASCII 안전 문자만 허용 → 부서명/이름을 safeKey로 정리
+        const folder = `${getQuarterTag()}/${safeKey(form.department)}_${safeKey(form.name)}_${Date.now()}`;
         asisUrls = await uploadImages(form.asisImages, folder + "/asis");
         tobeUrls = await uploadImages(form.tobeImages, folder + "/tobe");
       }
