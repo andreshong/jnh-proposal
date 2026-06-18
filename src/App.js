@@ -1113,7 +1113,7 @@ export default function App() {
             <div className="success-title">제안이 접수되었습니다</div>
             <div className="success-desc">
               제안 내용은 심사 후 2주 이내에 결과가 게시판에 공고됩니다.<br/><br/>
-              채택 시 부서 전원 인사고과 1점이 가산되며,<br/>최우수·우수 제안에 대해 포상이 진행됩니다.
+              채택 시 효과 구간에 따라 10만~100만원이 제안자 개인에게 지급되며,<br/>직무발명 인정 시 별도 보상이 가산됩니다.
               {scriptUrl && <><br/><br/>📊 Google Sheets에 자동 저장되었습니다.</>}
             </div>
             <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
@@ -1177,10 +1177,11 @@ export default function App() {
               <h3>"품질은 책임에서, 불량은 습관에서"</h3>
               <p>JNH PRESS 임직원 제안활동</p>
               <div className="info-rules">
-                <div className="info-rule"><span className="info-rule-icon">📋</span><span>범위 : 기술과 품질 향상, 업무 개선</span></div>
-                <div className="info-rule"><span className="info-rule-icon">📅</span><span>접수 : 분기 마감월 15일까지 제안서 제출</span></div>
-                <div className="info-rule"><span className="info-rule-icon">🏆</span><span>포상 : 최우수 30만원/팀 · 우수 15만원/팀 · 최우수 유급휴가 1일</span></div>
-                <div className="info-rule"><span className="info-rule-icon">⭐</span><span>고과 : 채택 부서 전원 인사고과 1점 가산</span></div>
+                <div className="info-rule"><span className="info-rule-icon">📋</span><span>범위 : 기술·품질 향상, 업무 개선, 매출 기여</span></div>
+                <div className="info-rule"><span className="info-rule-icon">📅</span><span>접수 : 분기 마감월 말일까지 제출</span></div>
+                <div className="info-rule"><span className="info-rule-icon">🏆</span><span>포상 : 10만~100만원/제안자 (매출·비용·시간 구간 매트릭스)</span></div>
+                <div className="info-rule"><span className="info-rule-icon">💡</span><span>가산 : 직무발명 인정 시 별도 보상 (비과세 한도 내)</span></div>
+                <div className="info-rule"><span className="info-rule-icon">⭐</span><span>비고 : 임직원 개인별 접수</span></div>
               </div>
             </div>
 
