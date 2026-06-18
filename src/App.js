@@ -1,8 +1,16 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { createClient } from "@supabase/supabase-js";
 
-// ═══ Google Apps Script URL ═══
-// 아래 URL을 본인의 Apps Script 배포 URL로 교체하세요
-const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyXDVXvYow3_eYAkuWZ6hla3o13YZJ8_aFrcDo-cLkl6OHl4wW77Sy3qNGsNuQb--2x/exec";
+// ═══ Supabase 연결 ═══
+const SUPABASE_URL = "https://twcpfxswxfbntwfqpeoq.supabase.co";
+const SUPABASE_KEY = "sb_publishable_dvH9xzS-cG_ZhFx0mb0Ywg_6Cz-K1Lf";
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const STORAGE_BUCKET = "proposal-images";
+
+// ═══ 관리자(전체 제안 열람) 비밀번호 ═══
+// 인사팀만 아는 값으로 바꿔서 사용하세요. (소스에 노출되므로 가벼운 차단용)
+const ADMIN_PASSWORD = "8342";
 
 const DEPARTMENTS = [
   "영업팀", "구매팀", "생산관리팀", "가공팀", "제관팀",
@@ -50,15 +58,12 @@ const STEPS = [
   { id: "review", label: "최종확인", num: "07" },
 ];
 
-const STORAGE_KEY = "jnh-proposals";
-const SETTINGS_KEY = "jnh-proposal-settings";
-
-function generateId() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-}
+const TYPE_LABEL_TO_ID = { "기술분야": "tech", "품질분야": "quality", "업무개선": "improve" };
 
 function formatDate(d) {
+  if (!d) return "";
   const date = new Date(d);
+  if (isNaN(date.getTime())) return "";
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
@@ -72,7 +77,25 @@ function getQuarterLabel() {
   return `${now.getFullYear()}년 ${q}분기`;
 }
 
-// ── 이미지 압축 (Drive 업로드 최적화) ──
+function getQuarterTag() {
+  const now = new Date();
+  const q = Math.ceil((now.getMonth() + 1) / 3);
+  return `${now.getFullYear()}-Q${q}`;
+}
+
+// dataURL(base64) → Blob 변환 (Storage 업로드용)
+function dataURLtoBlob(dataURL) {
+  const parts = dataURL.split(",");
+  const mimeMatch = parts[0].match(/data:(.*?);/);
+  const mime = mimeMatch ? mimeMatch[1] : "image/jpeg";
+  const bstr = atob(parts[1]);
+  let n = bstr.length;
+  const u8 = new Uint8Array(n);
+  while (n--) u8[n] = bstr.charCodeAt(n);
+  return new Blob([u8], { type: mime });
+}
+
+// ── 이미지 압축 ──
 function compressImage(base64, maxDim = 1024, quality = 0.6) {
   return new Promise((resolve) => {
     const img = new Image();
@@ -80,7 +103,6 @@ function compressImage(base64, maxDim = 1024, quality = 0.6) {
       try {
         const canvas = document.createElement("canvas");
         let w = img.width, h = img.height;
-        // 가로/세로 모두 제한 (모바일 세로 사진 대응)
         if (w > maxDim || h > maxDim) {
           const ratio = Math.min(maxDim / w, maxDim / h);
           w = Math.round(w * ratio);
@@ -92,7 +114,7 @@ function compressImage(base64, maxDim = 1024, quality = 0.6) {
         ctx.drawImage(img, 0, 0, w, h);
         resolve(canvas.toDataURL("image/jpeg", quality));
       } catch {
-        resolve(base64); // canvas 실패 시 원본 반환
+        resolve(base64);
       }
     };
     img.onerror = () => resolve(base64);
@@ -100,48 +122,28 @@ function compressImage(base64, maxDim = 1024, quality = 0.6) {
   });
 }
 
-async function compressImages(images) {
-  return Promise.all(images.map((img) => compressImage(img)));
+// 이미지 배열을 Storage에 업로드하고 public URL 배열 반환
+async function uploadImages(images, prefix) {
+  const urls = [];
+  for (let i = 0; i < images.length; i++) {
+    try {
+      const compressed = await compressImage(images[i]);
+      const blob = dataURLtoBlob(compressed);
+      const path = `${prefix}/${Date.now()}_${i}.jpg`;
+      const { error } = await supabase.storage.from(STORAGE_BUCKET).upload(path, blob, {
+        contentType: "image/jpeg",
+        upsert: false,
+      });
+      if (error) { console.error("upload error", error); continue; }
+      const { data } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
+      if (data && data.publicUrl) urls.push(data.publicUrl);
+    } catch (e) {
+      console.error("image upload failed", e);
+    }
+  }
+  return urls;
 }
 
-// ── Apps Script 전송 (hidden iframe + form 방식으로 CORS 완전 우회) ──
-async function submitToSheets(scriptUrl, formData) {
-  const compressed = {
-    ...formData,
-    asisImages: await compressImages(formData.asisImages || []),
-    tobeImages: await compressImages(formData.tobeImages || []),
-  };
-
-  return new Promise((resolve) => {
-    // hidden iframe 생성
-    const iframe = document.createElement("iframe");
-    iframe.name = "jnh-submit-frame";
-    iframe.style.display = "none";
-    document.body.appendChild(iframe);
-
-    // form 생성 → iframe으로 제출 (CORS 제한 없음)
-    const form = document.createElement("form");
-    form.method = "POST";
-    form.action = scriptUrl;
-    form.target = "jnh-submit-frame";
-
-    const input = document.createElement("input");
-    input.type = "hidden";
-    input.name = "payload";
-    input.value = JSON.stringify(compressed);
-    form.appendChild(input);
-
-    document.body.appendChild(form);
-    form.submit();
-
-    // 정리 (5초 후)
-    setTimeout(() => {
-      try { document.body.removeChild(form); } catch(e) {}
-      try { document.body.removeChild(iframe); } catch(e) {}
-      resolve({ result: "success" });
-    }, 5000);
-  });
-}
 
 // ─── Styles ───
 const css = `
@@ -418,6 +420,25 @@ textarea.text-input { min-height: 140px; resize: vertical; line-height: 1.7; }
 .info-rules { margin-top: 14px; display: grid; gap: 8px; }
 .info-rule { display: flex; gap: 10px; font-size: 12px; color: rgba(255,255,255,0.8); line-height: 1.5; }
 .info-rule-icon { flex-shrink: 0; width: 20px; text-align: center; }
+
+/* Tab bar */
+.tab-bar { display: flex; gap: 8px; margin-bottom: 20px; }
+.tab-btn {
+  flex: 1; padding: 12px; border: 1.5px solid var(--border); border-radius: 10px;
+  background: #fff; color: var(--text-sub); font-family: 'Noto Sans KR', sans-serif;
+  font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s;
+}
+.tab-btn:hover { border-color: var(--blue-light); }
+.tab-btn.active { background: var(--blue); color: #fff; border-color: var(--blue); box-shadow: 0 2px 8px rgba(0,112,74,0.2); }
+
+/* Admin gate */
+.admin-gate {
+  background: var(--card); border-radius: var(--radius); border: 1px solid var(--border);
+  padding: 40px 24px; text-align: center; margin-bottom: 16px;
+}
+.admin-gate-icon { font-size: 40px; margin-bottom: 12px; }
+.admin-gate-title { font-size: 18px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
+.admin-gate-desc { font-size: 13px; color: var(--text-sub); line-height: 1.6; margin-bottom: 8px; }
 
 .success-screen { text-align: center; padding: 60px 20px; }
 .success-icon {
@@ -714,27 +735,40 @@ function Toast({ message }) {
   return <div className="toast">{message}</div>;
 }
 
+
 // ─── Main App ───
 
 export default function App() {
   const [view, setView] = useState("dashboard");
   const [step, setStep] = useState(0);
-  const [proposals, setProposals] = useState([]);
-  const [detailId, setDetailId] = useState(null);
+  const [myProposals, setMyProposals] = useState([]);     // 내가 이 기기에서 낸 제안(id 목록 기반)
+  const [allProposals, setAllProposals] = useState([]);   // 전체(관리) - Supabase에서 로드
+  const [detailItem, setDetailItem] = useState(null);
   const [loading, setLoading] = useState(false);
   const [loadingMsg, setLoadingMsg] = useState("");
   const [toast, setToast] = useState("");
-  const [scriptUrl, setScriptUrl] = useState(SCRIPT_URL);
-  const [urlInput, setUrlInput] = useState(SCRIPT_URL);
-  const [connStatus, setConnStatus] = useState("ok");
   const [isMobile, setIsMobile] = useState(false);
+  const [listLoading, setListLoading] = useState(false);
+  const [tab, setTab] = useState("mine");
+  const [adminAuthed, setAdminAuthed] = useState(false);
+  const [adminInput, setAdminInput] = useState("");
   const touchRef = useRef({ startX: 0, startY: 0 });
   const [form, setForm] = useState({
     department: "", name: "", type: "", subType: "",
     asisText: "", asisImages: [], tobeText: "", tobeImages: [], effectText: "",
   });
 
-  // Mobile detection
+  // 내 제안 id 목록 (이 기기에서 제출한 것) - localStorage
+  const MY_IDS_KEY = "jnh-my-proposal-ids";
+  const getMyIds = () => {
+    try { return JSON.parse(localStorage.getItem(MY_IDS_KEY) || "[]"); } catch { return []; }
+  };
+  const addMyId = (id) => {
+    const ids = getMyIds();
+    ids.unshift(id);
+    try { localStorage.setItem(MY_IDS_KEY, JSON.stringify(ids)); } catch {}
+  };
+
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth <= 600);
     check();
@@ -742,51 +776,69 @@ export default function App() {
     return () => window.removeEventListener("resize", check);
   }, []);
 
-  // Load saved data
-  useEffect(() => {
-    (async () => {
-      try {
-        const r = { value: localStorage.getItem(STORAGE_KEY) };
-        if (r.value) setProposals(JSON.parse(r.value));
-      } catch (e) {}
-      try {
-        const s = { value: localStorage.getItem(SETTINGS_KEY) };
-        if (s.value) {
-          const settings = JSON.parse(s.value);
-          if (settings.scriptUrl) {
-            setScriptUrl(settings.scriptUrl);
-            setUrlInput(settings.scriptUrl);
-            setConnStatus("ok");
-          }
-        }
-      } catch (e) {}
-    })();
-  }, []);
-
-  const saveProposals = useCallback(async (data) => {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch (e) {}
-  }, []);
-
   const showToast = (msg) => {
     setToast(msg);
     setTimeout(() => setToast(""), 3000);
   };
 
-  const testConnection = async (url) => {
+  // Supabase 행 → 앱 내부 형식
+  const mapRow = (r) => ({
+    id: r.id,
+    createdAt: r.created_at,
+    department: r.department,
+    name: r.name,
+    type: r.type,
+    subType: r.sub_type,
+    asisText: r.asis_text,
+    tobeText: r.tobe_text,
+    effectText: r.effect_text,
+    asisImages: r.asis_images || [],
+    tobeImages: r.tobe_images || [],
+    status: r.status,
+    quarter: r.quarter,
+  });
+
+  // 전체 제안 로드 (관리자)
+  const loadAllProposals = useCallback(async () => {
+    setListLoading(true);
     try {
-      await fetch(url + "?action=ping", { redirect: "follow" });
-      setConnStatus("ok");
-      setScriptUrl(url);
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify({ scriptUrl: url }));
-      showToast("✓ Google Sheets 연결 성공!");
+      const { data, error } = await supabase
+        .from("proposals")
+        .select("*")
+        .order("created_at", { ascending: false });
+      if (error) { console.error(error); showToast("목록을 불러오지 못했습니다"); }
+      else setAllProposals((data || []).map(mapRow));
     } catch (e) {
-      // CORS 에러여도 서버 도달은 성공한 것이므로 연결됨으로 처리
-      setConnStatus("ok");
-      setScriptUrl(url);
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify({ scriptUrl: url }));
-      showToast("✓ Google Sheets 연결 성공!");
+      console.error(e);
+    } finally {
+      setListLoading(false);
     }
-  };
+  }, []);
+
+  // 내 제안 로드 (이 기기에서 낸 id만)
+  const loadMyProposals = useCallback(async () => {
+    const ids = getMyIds();
+    if (ids.length === 0) { setMyProposals([]); return; }
+    try {
+      const { data, error } = await supabase
+        .from("proposals")
+        .select("*")
+        .in("id", ids)
+        .order("created_at", { ascending: false });
+      if (!error && data) setMyProposals(data.map(mapRow));
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
+
+  // 대시보드 진입 시 로드
+  useEffect(() => {
+    if (view === "dashboard") {
+      loadMyProposals();
+      if (tab === "all" && adminAuthed) loadAllProposals();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, tab, adminAuthed]);
 
   const updateForm = (key, val) => setForm(p => ({ ...p, [key]: val }));
 
@@ -827,7 +879,6 @@ export default function App() {
     }
   };
 
-  // Swipe gesture handling for form navigation
   const onTouchStart = (e) => {
     touchRef.current.startX = e.touches[0].clientX;
     touchRef.current.startY = e.touches[0].clientY;
@@ -849,44 +900,59 @@ export default function App() {
     }
   };
 
+  // ═══ 제출: 이미지 업로드 → 레코드 저장 (한 트랜잭션 흐름) ═══
   const handleSubmit = async () => {
-    // Save locally first
-    const newProposal = {
-      id: generateId(), ...form,
-      createdAt: new Date().toISOString(), status: "접수",
-    };
-    const updated = [newProposal, ...proposals];
-    setProposals(updated);
-    await saveProposals(updated);
+    setLoading(true);
+    setLoadingMsg("제안서를 제출 중입니다...");
 
-    // Send to Google Sheets if connected
-    if (scriptUrl) {
-      setLoading(true);
-      setLoadingMsg("제안서를 제출 중입니다...");
-
+    try {
+      // 1) 이미지 업로드 (있으면)
+      let asisUrls = [];
+      let tobeUrls = [];
       const hasImages = form.asisImages.length > 0 || form.tobeImages.length > 0;
       if (hasImages) {
-        setLoadingMsg("이미지를 압축하고 Google Drive에 업로드 중...");
+        setLoadingMsg("이미지를 업로드하는 중...");
+        const folder = `${getQuarterTag()}/${form.department}_${form.name}_${Date.now()}`;
+        asisUrls = await uploadImages(form.asisImages, folder + "/asis");
+        tobeUrls = await uploadImages(form.tobeImages, folder + "/tobe");
       }
 
-      try {
-        await submitToSheets(scriptUrl, form);
-        setLoading(false);
-        setView("success");
-        showToast("✓ Google Sheets에 저장 완료!");
-      } catch (e) {
-        setLoading(false);
-        setView("success");
-        showToast("로컬 저장 완료 (Sheets 전송 실패 - 나중에 재시도)");
-        console.error("Sheets submit error:", e);
-      }
-    } else {
+      // 2) 레코드 저장 (이미지 URL이 같은 행에 묶임 → 불일치 불가)
+      setLoadingMsg("제안 내용을 저장하는 중...");
+      const { data, error } = await supabase
+        .from("proposals")
+        .insert({
+          department: form.department,
+          name: form.name,
+          type: form.type,
+          sub_type: form.subType,
+          asis_text: form.asisText,
+          tobe_text: form.tobeText,
+          effect_text: form.effectText,
+          asis_images: asisUrls,
+          tobe_images: tobeUrls,
+          status: "접수",
+          quarter: getQuarterTag(),
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      if (data && data.id) addMyId(data.id);
+
+      setLoading(false);
       setView("success");
-      showToast("제안이 로컬에 저장되었습니다");
+      showToast("✓ 제출 완료!");
+      loadMyProposals();
+    } catch (e) {
+      console.error("submit error", e);
+      setLoading(false);
+      showToast("제출 중 오류가 발생했습니다. 다시 시도해주세요.");
     }
   };
 
-  const openDetail = (id) => { setDetailId(id); setView("detail"); };
+  const openDetail = (item) => { setDetailItem(item); setView("detail"); };
 
   const getTypeBadge = (type) => {
     const t = PROPOSAL_TYPES.find(p => p.id === type);
@@ -1062,7 +1128,6 @@ export default function App() {
   };
 
   // ─── Render Views ───
-
   const headerBlock = (
     <header className="app-header">
       <div className="header-top">
@@ -1092,6 +1157,38 @@ export default function App() {
     </header>
   );
 
+  const renderProposalCard = (p) => (
+    <div key={p.id} className="proposal-card" onClick={() => openDetail(p)}>
+      <div className="proposal-card-top">
+        {getTypeBadge(p.type)}
+        <span className="proposal-date">{formatDate(p.createdAt)}</span>
+      </div>
+      <div className="proposal-title">{p.subType}</div>
+      <div className="proposal-meta">{p.department} · {p.name}</div>
+    </div>
+  );
+
+  const renderStatCards = (list) => (
+    <div className="dashboard-stats animate-in">
+      <div className="stat-card">
+        <div className="stat-num">{list.length}</div>
+        <div className="stat-label">전체 제안</div>
+      </div>
+      <div className="stat-card">
+        <div className="stat-num" style={{ color: "#1e3932" }}>
+          {list.filter(p => p.type === "tech").length}
+        </div>
+        <div className="stat-label">기술분야</div>
+      </div>
+      <div className="stat-card">
+        <div className="stat-num" style={{ color: "#c67c4e" }}>
+          {list.filter(p => p.type === "quality" || p.type === "improve").length}
+        </div>
+        <div className="stat-label">품질·개선</div>
+      </div>
+    </div>
+  );
+
   return (
     <div className="app-container">
       <style>{css}</style>
@@ -1114,11 +1211,10 @@ export default function App() {
             <div className="success-desc">
               제안 내용은 심사 후 2주 이내에 결과가 게시판에 공고됩니다.<br/><br/>
               채택 시 효과 구간에 따라 10만~100만원이 제안자 개인에게 지급되며,<br/>직무발명 인정 시 별도 보상이 가산됩니다.
-              {scriptUrl && <><br/><br/>📊 Google Sheets에 자동 저장되었습니다.</>}
             </div>
             <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
               <button className="btn btn-secondary" style={{ flex: "none", padding: "12px 24px" }}
-                onClick={() => { resetForm(); setView("dashboard"); }}>목록으로</button>
+                onClick={() => { resetForm(); setTab("mine"); setView("dashboard"); }}>목록으로</button>
               <button className="btn btn-primary" style={{ flex: "none", padding: "12px 24px" }}
                 onClick={startNewProposal}>새 제안 작성</button>
             </div>
@@ -1126,9 +1222,8 @@ export default function App() {
         )}
 
         {/* ── Detail ── */}
-        {view === "detail" && (() => {
-          const p = proposals.find(x => x.id === detailId);
-          if (!p) return null;
+        {view === "detail" && detailItem && (() => {
+          const p = detailItem;
           return (
             <>
               <button className="detail-back" onClick={() => setView("dashboard")}>← 목록으로 돌아가기</button>
@@ -1185,52 +1280,92 @@ export default function App() {
               </div>
             </div>
 
-
-            {proposals.length > 0 && (
-              <div className="dashboard-stats animate-in">
-                <div className="stat-card">
-                  <div className="stat-num">{proposals.length}</div>
-                  <div className="stat-label">전체 제안</div>
-                </div>
-                <div className="stat-card">
-                  <div className="stat-num" style={{ color: "#1e3932" }}>
-                    {proposals.filter(p => p.type === "tech").length}
-                  </div>
-                  <div className="stat-label">기술분야</div>
-                </div>
-                <div className="stat-card">
-                  <div className="stat-num" style={{ color: "#c67c4e" }}>
-                    {proposals.filter(p => p.type === "quality" || p.type === "improve").length}
-                  </div>
-                  <div className="stat-label">품질·개선</div>
-                </div>
-              </div>
-            )}
-
-            <div className="dashboard-header animate-in">
-              <div className="dashboard-title">내 제안 목록</div>
-              <button className="btn btn-primary" style={{ flex: "none", padding: "10px 20px", fontSize: 14 }}
-                onClick={startNewProposal}>+ 새 제안</button>
+            <div className="tab-bar animate-in">
+              <button className={`tab-btn ${tab === "mine" ? "active" : ""}`}
+                onClick={() => setTab("mine")}>내 제안</button>
+              <button className={`tab-btn ${tab === "all" ? "active" : ""}`}
+                onClick={() => setTab("all")}>전체 제안 (관리)</button>
             </div>
 
-            {proposals.length === 0 ? (
-              <div className="empty-state animate-in">
-                <div className="empty-icon">💡</div>
-                <div className="empty-text">아직 작성한 제안이 없습니다.<br/>새 제안을 작성하여 개선 아이디어를 공유해보세요!</div>
-              </div>
-            ) : (
-              <div className="proposal-list animate-in">
-                {proposals.map(p => (
-                  <div key={p.id} className="proposal-card" onClick={() => openDetail(p.id)}>
-                    <div className="proposal-card-top">
-                      {getTypeBadge(p.type)}
-                      <span className="proposal-date">{formatDate(p.createdAt)}</span>
-                    </div>
-                    <div className="proposal-title">{p.subType}</div>
-                    <div className="proposal-meta">{p.department} · {p.name}</div>
+            {/* 내 제안 탭 */}
+            {tab === "mine" && (
+              <>
+                {myProposals.length > 0 && renderStatCards(myProposals)}
+                <div className="dashboard-header animate-in">
+                  <div className="dashboard-title">내 제안 목록</div>
+                  <button className="btn btn-primary" style={{ flex: "none", padding: "10px 20px", fontSize: 14 }}
+                    onClick={startNewProposal}>+ 새 제안</button>
+                </div>
+                {myProposals.length === 0 ? (
+                  <div className="empty-state animate-in">
+                    <div className="empty-icon">💡</div>
+                    <div className="empty-text">아직 작성한 제안이 없습니다.<br/>새 제안을 작성하여 개선 아이디어를 공유해보세요!</div>
                   </div>
-                ))}
-              </div>
+                ) : (
+                  <div className="proposal-list animate-in">
+                    {myProposals.map(renderProposalCard)}
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* 전체 제안(관리) 탭 */}
+            {tab === "all" && (
+              <>
+                {!adminAuthed ? (
+                  <div className="admin-gate animate-in">
+                    <div className="admin-gate-icon">🔒</div>
+                    <div className="admin-gate-title">관리자 확인</div>
+                    <div className="admin-gate-desc">전체 제안 목록은 인사팀 관리자만 열람할 수 있습니다.</div>
+                    <input
+                      className="text-input"
+                      type="password"
+                      inputMode="numeric"
+                      placeholder="비밀번호 입력"
+                      value={adminInput}
+                      onChange={e => setAdminInput(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === "Enter") {
+                          if (adminInput === ADMIN_PASSWORD) { setAdminAuthed(true); setAdminInput(""); loadAllProposals(); }
+                          else showToast("비밀번호가 일치하지 않습니다");
+                        }
+                      }}
+                      style={{ maxWidth: 240, margin: "8px auto 14px", textAlign: "center" }}
+                    />
+                    <div>
+                      <button className="btn btn-primary" style={{ flex: "none", padding: "12px 28px" }}
+                        onClick={() => {
+                          if (adminInput === ADMIN_PASSWORD) { setAdminAuthed(true); setAdminInput(""); loadAllProposals(); }
+                          else showToast("비밀번호가 일치하지 않습니다");
+                        }}>확인</button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {renderStatCards(allProposals)}
+                    <div className="dashboard-header animate-in">
+                      <div className="dashboard-title">전체 제안 목록</div>
+                      <button className="btn btn-secondary" style={{ flex: "none", padding: "10px 18px", fontSize: 14 }}
+                        onClick={() => loadAllProposals()}>↻ 새로고침</button>
+                    </div>
+                    {listLoading ? (
+                      <div className="empty-state animate-in">
+                        <div className="empty-icon">⏳</div>
+                        <div className="empty-text">제안을 불러오는 중입니다...</div>
+                      </div>
+                    ) : allProposals.length === 0 ? (
+                      <div className="empty-state animate-in">
+                        <div className="empty-icon">📭</div>
+                        <div className="empty-text">접수된 제안이 없습니다.</div>
+                      </div>
+                    ) : (
+                      <div className="proposal-list animate-in">
+                        {allProposals.map(renderProposalCard)}
+                      </div>
+                    )}
+                  </>
+                )}
+              </>
             )}
           </>
         )}
