@@ -10,7 +10,7 @@ const STORAGE_BUCKET = "proposal-images";
 
 // ═══ 관리자(전체 제안 열람) 비밀번호 ═══
 // 인사팀만 아는 값으로 바꿔서 사용하세요. (소스에 노출되므로 가벼운 차단용)
-const ADMIN_PASSWORD = "1234";
+const ADMIN_PASSWORD = "8342";
 
 const DEPARTMENTS = [
   "영업팀", "구매팀", "생산관리팀", "가공팀", "제관팀",
