@@ -6,7 +6,7 @@ const SUPABASE_URL = "https://twcpfxswxfbntwfqpeoq.supabase.co";
 const SUPABASE_KEY = "sb_publishable_dvH9xzS-cG_ZhFx0mb0Ywg_6Cz-K1Lf";
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-const STORAGE_BUCKET = "proposal-images";
+const STORAGE_BUCKET = "Proposal_Images";
 
 // ═══ 관리자(전체 제안 열람) 비밀번호 ═══
 // 인사팀만 아는 값으로 바꿔서 사용하세요. (소스에 노출되므로 가벼운 차단용)
