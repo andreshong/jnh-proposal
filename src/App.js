@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 
 // ═══ Supabase 연결 ═══
@@ -799,7 +799,7 @@ export default function App() {
   });
 
   // 전체 제안 로드 (관리자)
-  const loadAllProposals = useCallback(async () => {
+  const loadAllProposals = async () => {
     setListLoading(true);
     try {
       const { data, error } = await supabase
@@ -813,10 +813,10 @@ export default function App() {
     } finally {
       setListLoading(false);
     }
-  }, []);
+  };
 
   // 내 제안 로드 (이 기기에서 낸 id만)
-  const loadMyProposals = useCallback(async () => {
+  const loadMyProposals = async () => {
     const ids = getMyIds();
     if (ids.length === 0) { setMyProposals([]); return; }
     try {
@@ -829,15 +829,44 @@ export default function App() {
     } catch (e) {
       console.error(e);
     }
-  }, []);
+  };
 
   // 대시보드 진입 시 로드
   useEffect(() => {
-    if (view === "dashboard") {
-      loadMyProposals();
-      if (tab === "all" && adminAuthed) loadAllProposals();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (view !== "dashboard") return;
+    const MY_KEY = "jnh-my-proposal-ids";
+    const toItem = (r) => ({
+      id: r.id, createdAt: r.created_at, department: r.department, name: r.name,
+      type: r.type, subType: r.sub_type, asisText: r.asis_text, tobeText: r.tobe_text,
+      effectText: r.effect_text, asisImages: r.asis_images || [], tobeImages: r.tobe_images || [],
+      status: r.status, quarter: r.quarter,
+    });
+    (async () => {
+      // 내 제안 로드
+      let ids = [];
+      try { ids = JSON.parse(localStorage.getItem(MY_KEY) || "[]"); } catch { ids = []; }
+      if (ids.length === 0) {
+        setMyProposals([]);
+      } else {
+        try {
+          const { data, error } = await supabase
+            .from("proposals").select("*").in("id", ids)
+            .order("created_at", { ascending: false });
+          if (!error && data) setMyProposals(data.map(toItem));
+        } catch (e) { console.error(e); }
+      }
+      // 관리자 인증 상태에서 전체 탭이면 전체 로드
+      if (tab === "all" && adminAuthed) {
+        setListLoading(true);
+        try {
+          const { data, error } = await supabase
+            .from("proposals").select("*")
+            .order("created_at", { ascending: false });
+          if (!error && data) setAllProposals(data.map(toItem));
+        } catch (e) { console.error(e); }
+        finally { setListLoading(false); }
+      }
+    })();
   }, [view, tab, adminAuthed]);
 
   const updateForm = (key, val) => setForm(p => ({ ...p, [key]: val }));
