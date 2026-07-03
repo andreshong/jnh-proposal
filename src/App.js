@@ -60,6 +60,21 @@ const STEPS = [
 
 const TYPE_LABEL_TO_ID = { "기술분야": "tech", "품질분야": "quality", "업무개선": "improve" };
 
+// ═══ 심사표 관련 상수 ═══
+// 1차(e1) 40% + 2차(e2) 60% 가중합산, 최종(e3)은 -5~+5 가감만
+const REVIEW_CRITERIA = [
+  { key: "creativity", label: "창의성", max: 20 },
+  { key: "effectiveness", label: "실효성", max: 10 },
+  { key: "impact", label: "파급효과", max: 10 },
+  { key: "exemplary", label: "모범성", max: 10 },
+];
+const REVIEW_MAX_TOTAL = REVIEW_CRITERIA.reduce((s, c) => s + c.max, 0); // 50
+const REVIEWER_LEVEL_LABEL = { e1: "1차 심사 (40%)", e2: "2차 심사 (60%)", e3: "최종 결재 (가감)" };
+const FINAL_APPROVER = "조윤성"; // 최종 결재자(e3) 고정
+const REWARD_TIER_COLOR = {
+  "숲": "#00704A", "나무": "#43b086", "줄기": "#c67c4e", "새싹": "#d4956a", "씨앗": "#8f9e98",
+};
+
 function formatDate(d) {
   if (!d) return "";
   const date = new Date(d);
@@ -542,6 +557,80 @@ textarea.text-input { min-height: 140px; resize: vertical; line-height: 1.7; }
 
 .animate-in { animation: fadeInUp 0.35s ease forwards; }
 
+/* ═══ 심사표(Review) 전용 스타일 ═══ */
+.reviewer-badge {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600;
+  color: #fff; background: rgba(255,255,255,0.15); padding: 6px 12px; border-radius: 8px;
+}
+.reviewer-switch {
+  background: none; border: none; color: rgba(255,255,255,0.6); font-size: 11px;
+  text-decoration: underline; cursor: pointer; font-family: 'Noto Sans KR', sans-serif; margin-left: 8px;
+}
+
+.level-badge {
+  display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 6px;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.2px;
+  background: #eef0e8; color: var(--blue);
+}
+.level-badge.e3 { background: #fbe9e0; color: #8b4513; }
+
+.status-badge {
+  display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 6px;
+  font-size: 11px; font-weight: 600;
+}
+.status-미심사 { background: #f2f0eb; color: var(--text-sub); }
+.status-심사중 { background: #fdf3e3; color: var(--accent); }
+.status-심사완료 { background: #e8f5e9; color: var(--blue); }
+
+.grade-badge {
+  display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 6px;
+  font-size: 11px; font-weight: 700; color: #fff;
+}
+
+.score-card {
+  background: var(--card); border-radius: var(--radius); padding: 20px;
+  margin-bottom: 14px; border: 1px solid var(--border);
+}
+.score-row { display: flex; align-items: center; gap: 14px; padding: 10px 0; border-bottom: 1px solid #efece5; }
+.score-row:last-child { border-bottom: none; }
+.score-row-label { flex: 1; font-size: 14px; font-weight: 600; color: var(--text); }
+.score-row-max { font-size: 11px; color: var(--text-light); font-weight: 500; margin-left: 4px; }
+.score-slider { flex: 2; accent-color: var(--blue); height: 6px; }
+.score-num-input {
+  width: 56px; padding: 8px; border: 1.5px solid var(--border); border-radius: 8px;
+  text-align: center; font-size: 14px; font-weight: 700; color: var(--blue);
+  font-family: 'Outfit', sans-serif;
+}
+
+.score-total-bar {
+  display: flex; justify-content: space-between; align-items: center;
+  background: #eef0e8; border-radius: 10px; padding: 14px 18px; margin-top: 4px;
+}
+.score-total-label { font-size: 13px; font-weight: 600; color: var(--text-sub); }
+.score-total-value { font-family: 'Outfit', sans-serif; font-size: 24px; font-weight: 800; color: var(--blue); }
+
+.adjustment-wrap { display: flex; align-items: center; justify-content: center; gap: 20px; padding: 16px 0; }
+.adjustment-btn {
+  width: 44px; height: 44px; border-radius: 50%; border: 1.5px solid var(--border);
+  background: #fff; font-size: 20px; font-weight: 700; color: var(--text); cursor: pointer;
+  display: flex; align-items: center; justify-content: center; transition: all 0.15s;
+}
+.adjustment-btn:hover { border-color: var(--blue); color: var(--blue); }
+.adjustment-value { font-family: 'Outfit', sans-serif; font-size: 32px; font-weight: 800; min-width: 64px; text-align: center; }
+.adjustment-value.pos { color: var(--blue); }
+.adjustment-value.neg { color: var(--danger); }
+
+.final-preview {
+  background: linear-gradient(135deg, var(--navy), var(--steel)); border-radius: var(--radius);
+  padding: 20px; color: #fff; margin-bottom: 16px;
+}
+.final-preview-row { display: flex; justify-content: space-between; font-size: 13px; padding: 4px 0; color: rgba(255,255,255,0.75); }
+.final-preview-total { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.15); }
+.final-preview-total .lbl { font-size: 14px; font-weight: 600; }
+.final-preview-total .val { font-family: 'Outfit', sans-serif; font-size: 26px; font-weight: 800; color: var(--accent-light); }
+
+.reviewer-gate-input-wrap { position: relative; max-width: 260px; margin: 8px auto 14px; }
+
 /* ═══ Mobile Responsive ═══ */
 @media (max-width: 600px) {
   .header-top { padding: 12px 16px; }
@@ -613,6 +702,11 @@ textarea.text-input { min-height: 140px; resize: vertical; line-height: 1.7; }
   .toast { font-size: 13px; padding: 10px 20px; bottom: 120px; max-width: 90vw; text-align: center; }
 
   .loading-text { font-size: 14px; }
+
+  .score-row { flex-wrap: wrap; }
+  .score-slider { flex-basis: 100%; order: 3; }
+  .adjustment-wrap { gap: 14px; }
+  .adjustment-btn { width: 48px; height: 48px; }
 }
 
 /* Image upload mobile buttons */
@@ -746,6 +840,68 @@ function Toast({ message }) {
   return <div className="toast">{message}</div>;
 }
 
+// ═══ 심사표 채점 카드 (1차/2차 공용) ═══
+function ScoreCard({ scores, onChange }) {
+  const total = REVIEW_CRITERIA.reduce((s, c) => s + Number(scores[c.key] || 0), 0);
+  return (
+    <div className="score-card">
+      {REVIEW_CRITERIA.map(c => (
+        <div className="score-row" key={c.key}>
+          <div className="score-row-label">{c.label}<span className="score-row-max">/ {c.max}점</span></div>
+          <input
+            className="score-slider"
+            type="range" min={0} max={c.max} step={1}
+            value={scores[c.key] ?? 0}
+            onChange={e => onChange(c.key, Number(e.target.value))}
+          />
+          <input
+            className="score-num-input"
+            type="number" min={0} max={c.max}
+            value={scores[c.key] ?? 0}
+            onChange={e => {
+              let v = Number(e.target.value);
+              if (isNaN(v)) v = 0;
+              v = Math.max(0, Math.min(c.max, v));
+              onChange(c.key, v);
+            }}
+          />
+        </div>
+      ))}
+      <div className="score-total-bar">
+        <div className="score-total-label">합계 (50점 만점)</div>
+        <div className="score-total-value">{total}점</div>
+      </div>
+    </div>
+  );
+}
+
+// ═══ 최종 결재(e3) 가감점 입력 ═══
+function AdjustmentCard({ value, onChange, e1Weighted, e2Weighted }) {
+  const preview = Math.round(((e1Weighted || 0) + (e2Weighted || 0) + value) * 10) / 10;
+  return (
+    <>
+      <div className="final-preview">
+        <div className="final-preview-row"><span>1차 심사 (×40%)</span><span>{e1Weighted ?? "-"}점</span></div>
+        <div className="final-preview-row"><span>2차 심사 (×60%)</span><span>{e2Weighted ?? "-"}점</span></div>
+        <div className="final-preview-total">
+          <span className="lbl">최종 예상 점수</span>
+          <span className="val">{preview}점</span>
+        </div>
+      </div>
+      <div className="score-card">
+        <div className="field-label" style={{ justifyContent: "center" }}>가감점 (-5 ~ +5)</div>
+        <div className="adjustment-wrap">
+          <button className="adjustment-btn" onClick={() => onChange(Math.max(-5, value - 1))}>−</button>
+          <div className={`adjustment-value ${value > 0 ? "pos" : value < 0 ? "neg" : ""}`}>
+            {value > 0 ? `+${value}` : value}
+          </div>
+          <button className="adjustment-btn" onClick={() => onChange(Math.min(5, value + 1))}>＋</button>
+        </div>
+      </div>
+    </>
+  );
+}
+
 
 // ─── Main App ───
 
@@ -768,6 +924,21 @@ export default function App() {
     department: "", name: "", type: "", subType: "",
     asisText: "", asisImages: [], tobeText: "", tobeImages: [], effectText: "",
   });
+
+  // ═══ 심사표 관련 state ═══
+  const REVIEWER_KEY = "jnh-reviewer-name";
+  const [reviewerName, setReviewerName] = useState(() => {
+    try { return localStorage.getItem(REVIEWER_KEY) || ""; } catch { return ""; }
+  });
+  const [reviewerInput, setReviewerInput] = useState("");
+  const [reviewScope, setReviewScope] = useState([]);   // [{dept, reviewer}]
+  const [finalScores, setFinalScores] = useState([]);   // v_proposal_final_scores rows
+  const [scoreLoading, setScoreLoading] = useState(false);
+  const [reviewTarget, setReviewTarget] = useState(null); // { proposal, level, row }
+  const [reviewScores, setReviewScores] = useState({ creativity: 0, effectiveness: 0, impact: 0, exemplary: 0 });
+  const [reviewAdjustment, setReviewAdjustment] = useState(0);
+  const [reviewOpinion, setReviewOpinion] = useState("");
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
 
   // 내 제안 id 목록 (이 기기에서 제출한 것) - localStorage
   const MY_IDS_KEY = "jnh-my-proposal-ids";
@@ -842,6 +1013,130 @@ export default function App() {
     }
   };
 
+  // ═══ 심사표: 부서-심사자 범위 로드 ═══
+  const loadReviewScope = async () => {
+    try {
+      const { data, error } = await supabase.from("prop_review_scope").select("*");
+      if (!error && data) setReviewScope(data);
+    } catch (e) { console.error(e); }
+  };
+
+  // ═══ 심사표: 통합 심사 현황(가중합산/등급) 로드 ═══
+  const loadFinalScores = async () => {
+    setScoreLoading(true);
+    try {
+      const { data, error } = await supabase.from("v_proposal_final_scores").select("*");
+      if (!error && data) setFinalScores(data);
+    } catch (e) { console.error(e); }
+    finally { setScoreLoading(false); }
+  };
+
+  // v_proposal_final_scores 행을 proposal_id로 조회
+  const getScoreRow = (proposalId) => finalScores.find(r => r.proposal_id === proposalId) || null;
+
+  // 현재 로그인한 심사자가 이 제안에 대해 채점 가능한 단계(e1/e2/e3)를 판별
+  // - 최종 결재자(조윤성): 1차·2차가 모두 채워진 제안만 e3 채점 가능
+  // - 그 외: prop_review_scope에 부서-이름이 등록된 경우만 가능. 이미 자신이 채점한 단계가 있으면 그 단계(수정),
+  //   없으면 비어있는 다음 단계(e1→e2)를 배정
+  const getMyLevel = (proposal, row) => {
+    if (!reviewerName) return null;
+    if (reviewerName === FINAL_APPROVER) {
+      if (row && row.e1_reviewer && row.e2_reviewer) return "e3";
+      return null;
+    }
+    const inScope = reviewScope.some(s => s.dept === proposal.department && s.reviewer === reviewerName);
+    if (!inScope) return null;
+    if (row && row.e1_reviewer === reviewerName) return "e1";
+    if (row && row.e2_reviewer === reviewerName) return "e2";
+    if (!row || !row.e1_reviewer) return "e1";
+    if (!row.e2_reviewer) return "e2";
+    return null; // 1·2차 모두 다른 사람이 이미 채점함
+  };
+
+  // 심사자 등록 명단 (동명이인 방지용 자동완성)
+  const reviewerCandidates = Array.from(new Set([...reviewScope.map(s => s.reviewer), FINAL_APPROVER])).sort();
+
+  const confirmReviewer = () => {
+    const name = reviewerInput.trim();
+    if (!name) { showToast("이름을 입력해주세요"); return; }
+    if (!reviewerCandidates.includes(name)) {
+      showToast("등록된 심사자 명단에 없습니다. 인사팀에 문의해주세요");
+      return;
+    }
+    setReviewerName(name);
+    try { localStorage.setItem(REVIEWER_KEY, name); } catch {}
+    setReviewerInput("");
+    loadFinalScores();
+  };
+
+  const switchReviewer = () => {
+    setReviewerName("");
+    try { localStorage.removeItem(REVIEWER_KEY); } catch {}
+  };
+
+  // 심사표 작성 화면 진입 (기존 채점 있으면 값 프리필)
+  const openReviewForm = (proposal) => {
+    const row = getScoreRow(proposal.id);
+    const level = getMyLevel(proposal, row);
+    if (!level) { showToast("이 제안은 현재 심사 대상이 아닙니다"); return; }
+
+    if (level === "e1" || level === "e2") {
+      const existingScores = level === "e1" ? row?.e1_scores : row?.e2_scores;
+      const existingOpinion = level === "e1" ? row?.e1_opinion : row?.e2_opinion;
+      const next = { creativity: 0, effectiveness: 0, impact: 0, exemplary: 0 };
+      if (Array.isArray(existingScores)) {
+        existingScores.forEach(s => { if (s && s.key in next) next[s.key] = s.score; });
+      }
+      setReviewScores(next);
+      setReviewOpinion(existingOpinion || "");
+    } else {
+      // e3
+      setReviewAdjustment(row?.e3_adjustment != null ? Number(row.e3_adjustment) : 0);
+      setReviewOpinion(row?.e3_opinion || "");
+    }
+    setReviewTarget({ proposal, level, row });
+    setView("reviewForm");
+  };
+
+  const submitReview = async () => {
+    if (!reviewTarget) return;
+    const { proposal, level } = reviewTarget;
+    setReviewSubmitting(true);
+    try {
+      const isE3 = level === "e3";
+      const scoresPayload = isE3
+        ? [{ key: "adjustment", label: "가감점", max: 5, score: reviewAdjustment }]
+        : REVIEW_CRITERIA.map(c => ({ key: c.key, label: c.label, max: c.max, score: reviewScores[c.key] || 0 }));
+      const total = isE3
+        ? reviewAdjustment
+        : REVIEW_CRITERIA.reduce((s, c) => s + Number(reviewScores[c.key] || 0), 0);
+
+      const { error } = await supabase
+        .from("prop_reviews")
+        .upsert({
+          proposal_id: proposal.id,
+          reviewer: reviewerName,
+          reviewer_level: level,
+          scores: scoresPayload,
+          total,
+          opinion: reviewOpinion,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "proposal_id,reviewer_level" });
+
+      if (error) throw error;
+
+      showToast("✓ 심사표가 저장되었습니다");
+      setView("dashboard");
+      setReviewTarget(null);
+      await loadFinalScores();
+    } catch (e) {
+      console.error("review submit error", e);
+      showToast("저장 중 오류가 발생했습니다. 다시 시도해주세요");
+    } finally {
+      setReviewSubmitting(false);
+    }
+  };
+
   // 대시보드 진입 시 로드
   useEffect(() => {
     if (view !== "dashboard") return;
@@ -877,7 +1172,21 @@ export default function App() {
         } catch (e) { console.error(e); }
         finally { setListLoading(false); }
       }
+      // 심사 탭이면 부서-심사자 범위 + 전체 제안 + 통합 심사현황 로드
+      if (tab === "review") {
+        loadReviewScope();
+        loadFinalScores();
+        if (allProposals.length === 0) {
+          try {
+            const { data, error } = await supabase
+              .from("proposals").select("*")
+              .order("created_at", { ascending: false });
+            if (!error && data) setAllProposals(data.map(toItem));
+          } catch (e) { console.error(e); }
+        }
+      }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, tab, adminAuthed]);
 
   const updateForm = (key, val) => setForm(p => ({ ...p, [key]: val }));
@@ -1184,6 +1493,17 @@ export default function App() {
             {STEPS[step].num} / 07
           </div>
         )}
+        {(view === "reviewForm") && reviewTarget && (
+          <div className="reviewer-badge">
+            {reviewerName} · {REVIEWER_LEVEL_LABEL[reviewTarget.level]}
+          </div>
+        )}
+        {view === "dashboard" && tab === "review" && reviewerName && (
+          <div className="reviewer-badge">
+            {reviewerName}
+            <button className="reviewer-switch" onClick={switchReviewer}>변경</button>
+          </div>
+        )}
       </div>
       {view === "form" && (
         <>
@@ -1198,16 +1518,36 @@ export default function App() {
     </header>
   );
 
-  const renderProposalCard = (p) => (
-    <div key={p.id} className="proposal-card" onClick={() => openDetail(p)}>
-      <div className="proposal-card-top">
-        {getTypeBadge(p.type)}
-        <span className="proposal-date">{formatDate(p.createdAt)}</span>
+  const renderProposalCard = (p, opts = {}) => {
+    const row = opts.showScore ? getScoreRow(p.id) : null;
+    return (
+      <div key={p.id} className="proposal-card" onClick={() => (opts.onClick ? opts.onClick(p) : openDetail(p))}>
+        <div className="proposal-card-top">
+          {getTypeBadge(p.type)}
+          <span className="proposal-date">{formatDate(p.createdAt)}</span>
+        </div>
+        <div className="proposal-title">{p.subType}</div>
+        <div className="proposal-meta">{p.department} · {p.name}</div>
+        {opts.levelBadge && (
+          <div style={{ marginTop: 10 }}>
+            <span className={`level-badge ${opts.levelBadge === "e3" ? "e3" : ""}`}>
+              {REVIEWER_LEVEL_LABEL[opts.levelBadge]}
+            </span>
+          </div>
+        )}
+        {row && (
+          <div style={{ marginTop: 10, display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <span className={`status-badge status-${row.review_status}`}>{row.review_status}</span>
+            {row.final_score != null && row.review_status === "심사완료" && (
+              <span className="grade-badge" style={{ background: REWARD_TIER_COLOR[row.reward_tier] || "#8f9e98" }}>
+                {row.reward_tier} · {row.final_score}점 · {(row.reward_amount || 0).toLocaleString()}원
+              </span>
+            )}
+          </div>
+        )}
       </div>
-      <div className="proposal-title">{p.subType}</div>
-      <div className="proposal-meta">{p.department} · {p.name}</div>
-    </div>
-  );
+    );
+  };
 
   const renderStatCards = (list) => (
     <div className="dashboard-stats animate-in">
@@ -1229,6 +1569,17 @@ export default function App() {
       </div>
     </div>
   );
+
+  // 심사 대상 목록 계산 (현재 로그인한 심사자 기준)
+  const reviewableList = reviewerName
+    ? allProposals
+        .map(p => {
+          const row = getScoreRow(p.id);
+          const level = getMyLevel(p, row);
+          return level ? { proposal: p, level, row } : null;
+        })
+        .filter(Boolean)
+    : [];
 
   return (
     <div className="app-container">
@@ -1296,6 +1647,66 @@ export default function App() {
           );
         })()}
 
+        {/* ── 심사표 작성 화면 ── */}
+        {view === "reviewForm" && reviewTarget && (() => {
+          const { proposal, level, row } = reviewTarget;
+          return (
+            <>
+              <button className="detail-back" onClick={() => { setView("dashboard"); setReviewTarget(null); }}>← 심사 목록으로</button>
+              <div className="detail-header-card animate-in">
+                <div className="detail-dept-name">{proposal.department} · {proposal.name}</div>
+                <div className="detail-title">{getTypeLabel(proposal.type)}</div>
+                <div className="detail-type">{proposal.subType}</div>
+              </div>
+
+              <div className="review-section animate-in">
+                <div className="review-section-header">개선 전 (As-Is)</div>
+                <div className="review-row"><div className="review-value">{proposal.asisText}</div></div>
+              </div>
+              <div className="review-section animate-in">
+                <div className="review-section-header">개선 후 (To-Be)</div>
+                <div className="review-row"><div className="review-value">{proposal.tobeText}</div></div>
+              </div>
+              <div className="review-section animate-in">
+                <div className="review-section-header">개선 효과</div>
+                <div className="review-row"><div className="review-value">{proposal.effectText}</div></div>
+              </div>
+
+              <div className="step-header" style={{ marginTop: 24, marginBottom: 12 }}>
+                <div className="step-title" style={{ fontSize: 18 }}>{REVIEWER_LEVEL_LABEL[level]} 채점</div>
+              </div>
+
+              {level === "e3" ? (
+                <AdjustmentCard
+                  value={reviewAdjustment}
+                  onChange={setReviewAdjustment}
+                  e1Weighted={row?.e1_weighted}
+                  e2Weighted={row?.e2_weighted}
+                />
+              ) : (
+                <ScoreCard
+                  scores={reviewScores}
+                  onChange={(key, val) => setReviewScores(p => ({ ...p, [key]: val }))}
+                />
+              )}
+
+              <div className="form-card">
+                <div className="field-label">심사 의견</div>
+                <textarea className="text-input" style={{ minHeight: 100 }}
+                  placeholder="심사 의견을 입력해주세요 (선택)"
+                  value={reviewOpinion} onChange={e => setReviewOpinion(e.target.value)} />
+              </div>
+
+              <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
+                <button className="btn btn-secondary" onClick={() => { setView("dashboard"); setReviewTarget(null); }}>취소</button>
+                <button className="btn btn-submit" disabled={reviewSubmitting} onClick={submitReview}>
+                  {reviewSubmitting ? "저장 중..." : "✓ 심사표 저장"}
+                </button>
+              </div>
+            </>
+          );
+        })()}
+
         {/* ── Form ── */}
         {view === "form" && (
           <div onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
@@ -1326,6 +1737,8 @@ export default function App() {
                 onClick={() => setTab("mine")}>내 제안</button>
               <button className={`tab-btn ${tab === "all" ? "active" : ""}`}
                 onClick={() => setTab("all")}>전체 제안 (관리)</button>
+              <button className={`tab-btn ${tab === "review" ? "active" : ""}`}
+                onClick={() => setTab("review")}>심사표</button>
             </div>
 
             {/* 내 제안 탭 */}
@@ -1344,7 +1757,7 @@ export default function App() {
                   </div>
                 ) : (
                   <div className="proposal-list animate-in">
-                    {myProposals.map(renderProposalCard)}
+                    {myProposals.map(p => renderProposalCard(p))}
                   </div>
                 )}
               </>
@@ -1367,7 +1780,7 @@ export default function App() {
                       onChange={e => setAdminInput(e.target.value)}
                       onKeyDown={e => {
                         if (e.key === "Enter") {
-                          if (adminInput === ADMIN_PASSWORD) { setAdminAuthed(true); setAdminInput(""); loadAllProposals(); }
+                          if (adminInput === ADMIN_PASSWORD) { setAdminAuthed(true); setAdminInput(""); loadAllProposals(); loadFinalScores(); }
                           else showToast("비밀번호가 일치하지 않습니다");
                         }
                       }}
@@ -1376,7 +1789,7 @@ export default function App() {
                     <div>
                       <button className="btn btn-primary" style={{ flex: "none", padding: "12px 28px" }}
                         onClick={() => {
-                          if (adminInput === ADMIN_PASSWORD) { setAdminAuthed(true); setAdminInput(""); loadAllProposals(); }
+                          if (adminInput === ADMIN_PASSWORD) { setAdminAuthed(true); setAdminInput(""); loadAllProposals(); loadFinalScores(); }
                           else showToast("비밀번호가 일치하지 않습니다");
                         }}>확인</button>
                     </div>
@@ -1387,7 +1800,7 @@ export default function App() {
                     <div className="dashboard-header animate-in">
                       <div className="dashboard-title">전체 제안 목록</div>
                       <button className="btn btn-secondary" style={{ flex: "none", padding: "10px 18px", fontSize: 14 }}
-                        onClick={() => loadAllProposals()}>↻ 새로고침</button>
+                        onClick={() => { loadAllProposals(); loadFinalScores(); }}>↻ 새로고침</button>
                     </div>
                     {listLoading ? (
                       <div className="empty-state animate-in">
@@ -1401,7 +1814,63 @@ export default function App() {
                       </div>
                     ) : (
                       <div className="proposal-list animate-in">
-                        {allProposals.map(renderProposalCard)}
+                        {allProposals.map(p => renderProposalCard(p, { showScore: true }))}
+                      </div>
+                    )}
+                  </>
+                )}
+              </>
+            )}
+
+            {/* 심사표 탭 */}
+            {tab === "review" && (
+              <>
+                {!reviewerName ? (
+                  <div className="admin-gate animate-in">
+                    <div className="admin-gate-icon">📝</div>
+                    <div className="admin-gate-title">심사자 확인</div>
+                    <div className="admin-gate-desc">심사표는 등록된 심사자 본인만 작성할 수 있습니다.<br/>이름을 입력해주세요.</div>
+                    <div className="reviewer-gate-input-wrap">
+                      <input
+                        className="text-input"
+                        list="reviewer-candidates"
+                        placeholder="이름 입력"
+                        value={reviewerInput}
+                        onChange={e => setReviewerInput(e.target.value)}
+                        onKeyDown={e => { if (e.key === "Enter") confirmReviewer(); }}
+                        style={{ textAlign: "center" }}
+                      />
+                      <datalist id="reviewer-candidates">
+                        {reviewerCandidates.map(n => <option key={n} value={n} />)}
+                      </datalist>
+                    </div>
+                    <div>
+                      <button className="btn btn-primary" style={{ flex: "none", padding: "12px 28px" }}
+                        onClick={confirmReviewer}>확인</button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="dashboard-header animate-in">
+                      <div className="dashboard-title">내가 심사할 제안</div>
+                      <button className="btn btn-secondary" style={{ flex: "none", padding: "10px 18px", fontSize: 14 }}
+                        onClick={() => { loadReviewScope(); loadFinalScores(); }}>↻ 새로고침</button>
+                    </div>
+                    {scoreLoading ? (
+                      <div className="empty-state animate-in">
+                        <div className="empty-icon">⏳</div>
+                        <div className="empty-text">심사 대상을 확인하는 중입니다...</div>
+                      </div>
+                    ) : reviewableList.length === 0 ? (
+                      <div className="empty-state animate-in">
+                        <div className="empty-icon">✅</div>
+                        <div className="empty-text">현재 심사 대기 중인 제안이 없습니다.</div>
+                      </div>
+                    ) : (
+                      <div className="proposal-list animate-in">
+                        {reviewableList.map(({ proposal, level }) =>
+                          renderProposalCard(proposal, { onClick: openReviewForm, levelBadge: level })
+                        )}
                       </div>
                     )}
                   </>
