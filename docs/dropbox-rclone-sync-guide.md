@@ -273,7 +273,74 @@ rclone bisync ./local-folder dropbox:remote-folder --resync   # 양방향이 필
 
 ---
 
-## 5. 결론 및 다음 단계
+## 5. 사내 서버(Windows) 적용 예시: `Y:` 드라이브 → Dropbox
+
+사내 서버가 Windows이고, 동기화할 파일들이 네트워크 드라이브 `Y:`에 있는
+실제 배포 시나리오 기준 예시입니다. 명령어와 동작 원리는 위 2~4절과 동일하며,
+아래는 Windows 환경에 맞춘 구체적인 실행 방법입니다.
+
+### 5-1. 기본 동기화 명령 (PowerShell)
+
+```powershell
+# 처음엔 반드시 dry-run으로 먼저 확인
+rclone sync "Y:\" dropbox:CompanyDrive --dry-run -v --log-file=C:\rclone\logs\sync.log
+
+# 이상 없으면 실제 실행
+rclone sync "Y:\" dropbox:CompanyDrive -v --log-file=C:\rclone\logs\sync.log
+```
+
+- `Y:\` 전체가 아니라 특정 하위 폴더만 동기화하려면 `"Y:\공유폴더\프로젝트"`처럼
+  경로를 좁혀서 지정하세요. `rclone sync`는 대상에만 있고 소스(`Y:`)에는 없는
+  파일을 **삭제**하므로, 처음에는 범위를 좁게 잡고 검증 후 넓히는 걸 권장합니다.
+- Dropbox 쪽 대상 폴더명(`CompanyDrive`)은 2-1에서 등록한 앱이 `App folder`
+  범위라면 Dropbox 상에서 자동으로 `Apps/<앱이름>/CompanyDrive`에 매핑됩니다.
+
+### 5-2. Windows 작업 스케줄러(Task Scheduler)로 주기 동기화 자동화
+
+`schtasks` 명령으로 5분마다 동기화하는 예시:
+
+```powershell
+schtasks /create /tn "DropboxRcloneSync" `
+  /tr "C:\rclone\rclone.exe sync Y:\ dropbox:CompanyDrive -v --log-file=C:\rclone\logs\sync.log" `
+  /sc minute /mo 5 `
+  /ru "<서비스 계정>" /rp "<암호>"
+```
+
+**주의할 점**
+
+- `Y:` 같은 매핑 드라이브는 **해당 계정이 로그인한 세션에서만 보이는 경우**가
+  많습니다. 작업 스케줄러가 "사용자가 로그온하지 않아도 실행" 옵션으로
+  동작하면 `Y:`가 인식되지 않을 수 있습니다. 이 경우
+  - 작업 속성에서 "사용자가 로그온했는지 여부에 관계없이 실행"을 끄고
+    "사용자가 로그온한 경우에만 실행"으로 설정하거나,
+  - `Y:\` 대신 UNC 경로(예: `\\fileserver\share\`)를 직접 사용하는 것이
+    더 안전합니다(로그온 세션에 의존하지 않음).
+- rclone remote 설정(`rclone config`로 만든 토큰)은 **서비스 계정의 사용자
+  프로필**(`%APPDATA%\rclone\rclone.conf`) 아래 저장됩니다. 작업 스케줄러가
+  다른 계정으로 실행되면 그 계정으로 다시 `rclone config`를 해줘야 합니다.
+- 실수로 대량 삭제가 전파되는 걸 막고 싶다면 `--max-delete N` 옵션으로 한
+  번에 삭제 가능한 파일 수를 제한하거나, `--backup-dir`로 삭제/덮어쓰기 전
+  파일을 별도 폴더에 보관하도록 설정할 수 있습니다.
+
+```powershell
+rclone sync "Y:\" dropbox:CompanyDrive -v `
+  --log-file=C:\rclone\logs\sync.log `
+  --max-delete 20 `
+  --backup-dir dropbox:CompanyDrive-backups/(Get-Date -Format yyyyMMdd)
+```
+
+### 5-3. 검증 순서 (권장)
+
+1. `Y:` 하위의 테스트용 서브폴더(예: `Y:\_rclone-test`)만 대상으로 5-1의
+   dry-run/실제 동기화를 먼저 실행해 명령이 의도대로 동작하는지 확인
+2. 파일 수정·추가·삭제 후 재동기화하여 4-4와 동일하게 반영되는지 확인
+3. 문제 없으면 범위를 실제 대상 폴더로 넓히고, 5-2의 작업 스케줄러 등록
+4. 로그 파일(`C:\rclone\logs\sync.log`)을 주기적으로 확인해 인증 만료나
+   권한 오류가 없는지 모니터링
+
+---
+
+## 6. 결론 및 다음 단계
 
 - rclone 설치, remote 설정 절차, `sync`/`check` 명령의 동작(신규 복사·수정 반영·
   삭제 전파)까지 로컬 환경(local remote 대체)에서 검증 완료했습니다.
@@ -282,3 +349,5 @@ rclone bisync ./local-folder dropbox:remote-folder --resync   # 양방향이 필
   2. 사내 서버(headless): 로컬 PC에서 `rclone authorize dropbox <id> <secret>`로
      토큰 발급 → 서버의 `rclone config`에 붙여넣기
 - 이후 `dropbox:` remote 이름만 넣으면 위 3~4단계 명령이 그대로 동작합니다.
+- Windows 사내 서버(`Y:` 드라이브) 적용 시 구체적인 명령과 작업 스케줄러
+  설정은 5절을 참고하세요.
