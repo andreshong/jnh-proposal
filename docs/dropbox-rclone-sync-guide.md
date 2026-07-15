@@ -98,14 +98,21 @@ rclone은 Dropbox 데스크톱 앱처럼 아이디/비밀번호로 로그인하�
   API 앱을 별도로 등록**하는 것을 권장합니다. 또한 "App folder"가 아닌
   "Full Dropbox" 접근 범위가 필요하면 앱 등록 시 명시적으로 선택해야 합니다.
 
+> **이번 배포 대상 확인:** 동기화 목적지가 Dropbox 최상위(루트)에 이미 존재하는
+> `JNH Press` 폴더(`https://www.dropbox.com/home/JNH%20Press`)이므로, 아래
+> 4단계에서 **반드시 `Full Dropbox`를 선택**해야 합니다. `App folder`를 선택하면
+> rclone이 `Apps/<앱이름>/` 안의 새 폴더에만 접근할 수 있어 기존 `JNH Press`
+> 폴더에는 접근이 불가능합니다.
+
 **등록 절차**
 
 1. https://www.dropbox.com/developers/apps 접속 (Dropbox 계정 로그인 필요)
 2. **Create app** 클릭
 3. **Scoped access** 선택
 4. 접근 범위 선택
-   - `App folder`: `Apps/<앱이름>` 폴더만 접근 (권장, 최소 권한 원칙)
-   - `Full Dropbox`: 전체 Dropbox 접근
+   - `App folder`: `Apps/<앱이름>` 폴더만 접근 (최소 권한 원칙이지만, 이번처럼
+     기존 폴더에 동기화해야 하면 사용 불가)
+   - `Full Dropbox`: 전체 Dropbox 접근 — **이번 `JNH Press` 폴더 동기화에는 이걸 선택**
 5. 앱 이름 입력 후 생성
 6. **Permissions** 탭에서 필요한 스코프 체크 후 **Submit**
    - `files.metadata.read`, `files.metadata.write`
@@ -281,19 +288,23 @@ rclone bisync ./local-folder dropbox:remote-folder --resync   # 양방향이 필
 
 ### 5-1. 기본 동기화 명령 (PowerShell)
 
+실제 동기화 목적지는 Dropbox 루트의 `JNH Press` 폴더
+(`https://www.dropbox.com/home/JNH%20Press`)입니다. 폴더명에 공백이 있으므로
+`"dropbox:JNH Press"`처럼 **전체를 따옴표로 묶어야** 합니다.
+
 ```powershell
 # 처음엔 반드시 dry-run으로 먼저 확인
-rclone sync "Y:\" dropbox:CompanyDrive --dry-run -v --log-file=C:\rclone\logs\sync.log
+rclone sync "Y:\" "dropbox:JNH Press" --dry-run -v --log-file=C:\rclone\logs\sync.log
 
 # 이상 없으면 실제 실행
-rclone sync "Y:\" dropbox:CompanyDrive -v --log-file=C:\rclone\logs\sync.log
+rclone sync "Y:\" "dropbox:JNH Press" -v --log-file=C:\rclone\logs\sync.log
 ```
 
 - `Y:\` 전체가 아니라 특정 하위 폴더만 동기화하려면 `"Y:\공유폴더\프로젝트"`처럼
   경로를 좁혀서 지정하세요. `rclone sync`는 대상에만 있고 소스(`Y:`)에는 없는
   파일을 **삭제**하므로, 처음에는 범위를 좁게 잡고 검증 후 넓히는 걸 권장합니다.
-- Dropbox 쪽 대상 폴더명(`CompanyDrive`)은 2-1에서 등록한 앱이 `App folder`
-  범위라면 Dropbox 상에서 자동으로 `Apps/<앱이름>/CompanyDrive`에 매핑됩니다.
+- `JNH Press`는 Dropbox 루트에 이미 존재하는 폴더이므로, 2-1에서 설명한 대로
+  앱 등록 시 **Full Dropbox** 범위를 선택했어야 이 경로에 접근할 수 있습니다.
 
 ### 5-2. Windows 작업 스케줄러(Task Scheduler)로 주기 동기화 자동화
 
@@ -301,7 +312,7 @@ rclone sync "Y:\" dropbox:CompanyDrive -v --log-file=C:\rclone\logs\sync.log
 
 ```powershell
 schtasks /create /tn "DropboxRcloneSync" `
-  /tr "C:\rclone\rclone.exe sync Y:\ dropbox:CompanyDrive -v --log-file=C:\rclone\logs\sync.log" `
+  /tr "C:\rclone\rclone.exe sync Y:\ \"dropbox:JNH Press\" -v --log-file=C:\rclone\logs\sync.log" `
   /sc minute /mo 5 `
   /ru "<서비스 계정>" /rp "<암호>"
 ```
@@ -323,10 +334,10 @@ schtasks /create /tn "DropboxRcloneSync" `
   파일을 별도 폴더에 보관하도록 설정할 수 있습니다.
 
 ```powershell
-rclone sync "Y:\" dropbox:CompanyDrive -v `
+rclone sync "Y:\" "dropbox:JNH Press" -v `
   --log-file=C:\rclone\logs\sync.log `
   --max-delete 20 `
-  --backup-dir dropbox:CompanyDrive-backups/(Get-Date -Format yyyyMMdd)
+  --backup-dir "dropbox:JNH Press-backups/$(Get-Date -Format yyyyMMdd)"
 ```
 
 ### 5-3. 검증 순서 (권장)
@@ -340,7 +351,62 @@ rclone sync "Y:\" dropbox:CompanyDrive -v `
 
 ---
 
-## 6. 결론 및 다음 단계
+## 6. 보안 고려사항 (사내 보안팀과 사전 협의 권장)
+
+이 방식은 사내 서버에서 외부(Dropbox) 클라우드로 파일을 지속적으로 업로드하는
+구조이므로, 실 서버에 적용하기 전에 아래 항목들을 사내 보안팀과 확인하는 것을
+권장합니다.
+
+1. **방화벽/프록시 아웃바운드 허용**
+   - rclone은 `api.dropboxapi.com`, `content.dropboxapi.com`,
+     `notify.dropboxapi.com` (그리고 인증 시 `www.dropbox.com`)로 나가는
+     HTTPS(443) 트래픽이 필요합니다. 사내 프록시가 화이트리스트 방식이면
+     이 도메인들을 명시적으로 허용해야 합니다(Dropbox 데스크톱 앱을 쓸 때와
+     동일한 요건).
+
+2. **DLP(정보유출방지) / CASB 탐지**
+   - 많은 기업 보안 솔루션이 "승인되지 않은 클라우드 스토리지로의 업로드"를
+     탐지·차단합니다. rclone은 Dropbox 공식 데스크톱 앱과 다른 트래픽
+     패턴(프로세스명, TLS 핑거프린트 등)을 가지므로, 이미 Dropbox 앱은
+     허용되어 있어도 rclone 트래픽은 별도로 "미승인 도구의 유출 시도"로
+     탐지/차단될 수 있습니다. 사전에 보안팀에 목적(사내→Dropbox 백업/동기화)과
+     사용 도구(rclone)를 알리고 예외 처리를 요청하는 것이 안전합니다.
+
+3. **OAuth 토큰 보관**
+   - `rclone config`로 발급받은 토큰은 실행 계정의 `rclone.conf`
+     (Windows: `%APPDATA%\rclone\rclone.conf`)에 저장됩니다. 이번처럼
+     **Full Dropbox** 권한으로 발급하면, 이 파일이 유출될 경우 회사 Dropbox
+     전체에 접근 가능한 자격 증명이 유출되는 것과 같습니다.
+     - `rclone config` 시 `Set configuration password`로 config 파일을
+       암호화하거나,
+     - 해당 파일의 NTFS 권한을 서비스 계정만 읽을 수 있도록 제한하고,
+     - 가능하면 회사 명의의 별도 Dropbox 계정(개인 관리자 계정이 아닌)으로
+       앱을 등록해 감사(audit)와 권한 회수가 쉽도록 하는 것을 권장합니다.
+
+4. **의도치 않은 대량 삭제**
+   - `rclone sync`는 소스에 없는 파일을 대상에서 자동 삭제합니다. 소스 경로를
+     잘못 지정하거나 `Y:` 드라이브 연결이 일시적으로 끊긴 상태로 동기화가
+     돌면, Dropbox의 `JNH Press` 폴더 파일이 대량으로 삭제될 수 있습니다.
+     5-2에서 언급한 `--max-delete`, `--backup-dir` 옵션 사용을 권장하며,
+     Dropbox 자체의 "30일 파일 복구" 기능도 안전망으로 활용할 수 있습니다.
+
+5. **사내 소프트웨어 승인/EDR**
+   - 일부 기업은 서버에 설치되는 실행 파일에 대해 화이트리스트 정책(EDR,
+     애플리케이션 제어)을 운영합니다. `rclone.exe` 설치 전에 IT 자산관리팀
+     승인 절차가 필요한지 확인하세요.
+
+6. **데이터 분류 확인**
+   - 동기화 대상 폴더에 개인정보, 도면/설계 데이터 등 외부 반출이 제한된
+     자료가 포함되어 있지 않은지 사전에 확인하고, 필요하면 동기화 대상
+     경로를 좁혀서 지정하세요(5-1 참고).
+
+위 항목은 "이 방식을 쓰면 안 된다"는 뜻이 아니라, Dropbox 데스크톱 앱을 쓸 때도
+동일하게 검토되어야 했을 사항들이 API 기반 방식에서는 트래픽 패턴이 달라
+별도로 재확인이 필요하다는 의미입니다.
+
+---
+
+## 7. 결론 및 다음 단계
 
 - rclone 설치, remote 설정 절차, `sync`/`check` 명령의 동작(신규 복사·수정 반영·
   삭제 전파)까지 로컬 환경(local remote 대체)에서 검증 완료했습니다.
@@ -351,3 +417,5 @@ rclone sync "Y:\" dropbox:CompanyDrive -v `
 - 이후 `dropbox:` remote 이름만 넣으면 위 3~4단계 명령이 그대로 동작합니다.
 - Windows 사내 서버(`Y:` 드라이브) 적용 시 구체적인 명령과 작업 스케줄러
   설정은 5절을 참고하세요.
+- 실 서버 배포 전, **6절의 보안 고려사항을 사내 보안팀과 먼저 협의**하는
+  것을 권장합니다(방화벽 허용, DLP 예외, 토큰 보관, 소프트웨어 승인 등).
